@@ -1,0 +1,120 @@
+# Workflow name
+name: Publish Native AOT + Docker Image
+
+on: [workflow_dispatch]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-linux:
+    name: Build for Linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore src/Dockin.csproj
+
+      - name: Publish Native AOT
+        run: |
+          dotnet publish src/Dockin.csproj \
+            -c Release \
+            -p:PublishAot=true \
+            -p:PublishSingleFile=true \
+            -p:SelfContained=true \
+            -r linux-x64 \
+            -o publish/linux-x64
+
+      - name: Create zip archive
+        run: |
+          cd publish/linux-x64
+          zip -r ../../dockin-linux-x64.zip .
+          cd ../../
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dockin-linux-x64
+          path: dockin-linux-x64.zip
+
+  # Job to create a GitHub Release
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: build-linux
+
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dockin-linux-x64
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dockin-linux-x64.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Job to build and push the Docker image
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: build-linux
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: dockin-linux-x64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_NAME=ghcr.io/${{ github.repository_owner }}/dockin:latest
+          mkdir docker-build
+          unzip dockin-linux-x64.zip -d docker-build/
+
+          # --- Generate the Dockerfile ---
+          cat > docker-build/Dockerfile <<EOF
+          FROM mcr.microsoft.com/dotnet/runtime-deps:9.0-azurelinux3.0-distroless
+          WORKDIR /app
+          COPY Dockin .
+          COPY appsettings.json .
+          ENTRYPOINT ["/app/Dockin"]
+          EOF
+          # --- End of Dockerfile generation ---
+
+          echo "--- Generated Dockerfile ---"
+          cat docker-build/Dockerfile
+          echo "--------------------------"
+
+          docker buildx build \
+            --platform linux/amd64 \
+            --push \
+            -t $IMAGE_NAME \
+            docker-build
+
+          echo "Docker image pushed: $IMAGE_NAME"
