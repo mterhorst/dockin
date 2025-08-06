@@ -44,7 +44,7 @@ namespace Dockin
             .AddPolicy("AuthenticatedOnly", policy =>
             {
                 policy.RequireAuthenticatedUser();
-                policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
+                //policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
             });
 
             var entraId = builder.Configuration.GetEntraId();
