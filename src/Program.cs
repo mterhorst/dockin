@@ -53,13 +53,20 @@ namespace Dockin
             {
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
                 options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
-
-                options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
             })
             .AddCookie(options =>
             {
                 options.Cookie.Name = "s_";
                 options.Cookie.HttpOnly = true;
+            })
+            .AddJwtBearer(options =>
+            {
+                options.Authority = $"https://login.microsoftonline.com/{entraId.Tenantid}/v2.0";
+                options.Audience = entraId.Clientid;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true
+                };
             })
             .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
             {
@@ -92,15 +99,6 @@ namespace Dockin
                 }
 
                 entraId = entraId with { Clientsecret = string.Empty };
-            })
-            .AddJwtBearer(options =>
-            {
-                options.Authority = $"https://login.microsoftonline.com/{entraId.Tenantid}/v2.0";
-                options.Audience = entraId.Clientid;
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true
-                };
             });
 
             builder.Services.AddSingleton<ITransformProvider, DynamicDestinationTransformProvider>();
