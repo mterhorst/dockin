@@ -2,6 +2,7 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.IdentityModel.Tokens;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
@@ -43,6 +44,7 @@ namespace Dockin
             .AddPolicy("AuthenticatedOnly", policy =>
             {
                 policy.RequireAuthenticatedUser();
+                policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
             });
 
             var entraId = builder.Configuration.GetEntraId();
@@ -50,6 +52,8 @@ namespace Dockin
             builder.Services.AddAuthentication(options =>
             {
                 options.DefaultScheme = CookieAuthenticationDefaults.AuthenticationScheme;
+                options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
+
                 options.DefaultChallengeScheme = OpenIdConnectDefaults.AuthenticationScheme;
             })
             .AddCookie(options =>
@@ -88,6 +92,15 @@ namespace Dockin
                 }
 
                 entraId = entraId with { Clientsecret = string.Empty };
+            })
+            .AddJwtBearer(options =>
+            {
+                options.Authority = $"https://login.microsoftonline.com/{entraId.Tenantid}/v2.0";
+                options.Audience = entraId.Clientid;
+                options.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true
+                };
             });
 
             builder.Services.AddSingleton<ITransformProvider, DynamicDestinationTransformProvider>();
