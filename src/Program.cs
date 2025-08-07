@@ -1,5 +1,6 @@
 ﻿using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
@@ -17,6 +18,8 @@ namespace Dockin
 
         public static async Task Main(string[] args)
         {
+            //IdentityModelEventSource.ShowPII = true;
+
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
             {
                 Args = args,
@@ -44,7 +47,8 @@ namespace Dockin
             .AddPolicy("AuthenticatedOnly", policy =>
             {
                 policy.RequireAuthenticatedUser();
-                //policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
+                policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
+                //policy.AddAuthenticationSchemes("Bearer");
             });
 
             var entraId = builder.Configuration.GetEntraId();
@@ -65,7 +69,39 @@ namespace Dockin
                 options.Audience = entraId.Clientid;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
-                    ValidateIssuer = true
+                    ValidateAudience = true,
+                    ValidateIssuer = true,
+                    ValidateLifetime = true,
+                    ValidateIssuerSigningKey = true
+                };
+
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        //Console.WriteLine("📥 OnMessageReceived");
+                        //Console.WriteLine($"Authorization: {context.Request.Headers["Authorization"]}");
+                        return Task.CompletedTask;
+                    },
+                    OnTokenValidated = context =>
+                    {
+                        //Console.WriteLine("✅ OnTokenValidated");
+                        //Console.WriteLine($"User: {context.Principal?.Identity?.Name}");
+                        return Task.CompletedTask;
+                    },
+                    OnAuthenticationFailed = context =>
+                    {
+                        Console.WriteLine("❌ OnAuthenticationFailed");
+                        Console.WriteLine(context.Exception.ToString());
+                        return Task.CompletedTask;
+                    },
+                    OnChallenge = context =>
+                    {
+                        //Console.WriteLine("⚠️ OnChallenge");
+                        //Console.WriteLine($"Error: {context.Error}");
+                        //Console.WriteLine($"Description: {context.ErrorDescription}");
+                        return Task.CompletedTask;
+                    }
                 };
             })
             .AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, options =>
