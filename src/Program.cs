@@ -2,9 +2,12 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System.Collections.Concurrent;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json.Serialization;
 using Yarp.ReverseProxy.Transforms;
@@ -41,15 +44,11 @@ namespace Dockin
                 options.SerializerOptions.TypeInfoResolverChain.Insert(0, AppJsonSerializerContext.Default);
             });
 
+            builder.Services.AddHttpContextAccessor();
+
             builder.Services.AddReverseProxy().LoadFromConfig(builder.Configuration.GetSection("ReverseProxy"));
 
-            builder.Services.AddAuthorizationBuilder()
-            .AddPolicy("AuthenticatedOnly", policy =>
-            {
-                policy.RequireAuthenticatedUser();
-                policy.AddAuthenticationSchemes(CookieAuthenticationDefaults.AuthenticationScheme, "Bearer");
-                //policy.AddAuthenticationSchemes("Bearer");
-            });
+            builder.Services.AddSingleton<IAuthorizationPolicyProvider, DynamicAuthPolicyProvider>();
 
             var entraId = builder.Configuration.GetEntraId();
 
@@ -283,6 +282,32 @@ namespace Dockin
 
             context.ProxyRequest.RequestUri = uri;
             context.ProxyRequest.Headers.Host = uri.Authority;
+        }
+    }
+
+    public sealed class DynamicAuthPolicyProvider : DefaultAuthorizationPolicyProvider
+    {
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
+        public DynamicAuthPolicyProvider(IOptions<AuthorizationOptions> options, IHttpContextAccessor httpContextAccessor) : base(options)
+        {
+            _httpContextAccessor = httpContextAccessor;
+        }
+
+        public override Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
+        {
+            var policyBuilder = new AuthorizationPolicyBuilder();
+
+            if (_httpContextAccessor.HttpContext?.Request.Headers.TryGetValue("Authorization", out var authHeader) == true && 
+                AuthenticationHeaderValue.TryParse(authHeader, out var authHeaderValue) &&
+                string.Equals(authHeaderValue.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase))
+            {
+                policyBuilder.AddAuthenticationSchemes("Bearer");
+            }
+
+            policyBuilder.RequireAuthenticatedUser();
+
+            return Task.FromResult(policyBuilder.Build());
         }
     }
 }
