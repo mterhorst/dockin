@@ -37,6 +37,7 @@ namespace Dockin
             builder.WebHost.ConfigureKestrel(serverOptions =>
             {
                 serverOptions.Limits.MaxRequestBodySize = long.MaxValue;
+                serverOptions.AddServerHeader = false;
             });
 
             builder.Services.ConfigureHttpJsonOptions(options =>
