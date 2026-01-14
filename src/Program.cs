@@ -250,7 +250,13 @@ namespace Dockin
             {
                 Log.LogFoundSelectedApp(_logger, _app);
 
-                var newUri = new UriBuilder("http", _app.Name, _app.Port, context.HttpContext.Request.Path).Uri;
+                var newUri = new UriBuilder(
+                    "http", 
+                    _app.Name, 
+                    _app.Port, 
+                    context.HttpContext.Request.Path, 
+                    context.HttpContext.Request.QueryString.Value)
+                    .Uri;
 
                 Log.LogProxyUri(_logger, newUri);
 
@@ -308,7 +314,7 @@ namespace Dockin
 
             policyBuilder.RequireAuthenticatedUser();
 
-            return Task.FromResult(policyBuilder.Build());
+            return Task.FromResult(policyBuilder.Build())!;
         }
     }
 }
