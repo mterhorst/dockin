@@ -21,8 +21,6 @@ namespace Dockin
 
         public static async Task Main(string[] args)
         {
-            //IdentityModelEventSource.ShowPII = true;
-
             var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
             {
                 Args = args,
@@ -60,6 +58,7 @@ namespace Dockin
             })
             .AddCookie(options =>
             {
+                // The "s_" prefix marks proxy session cookies; they are stripped before requests are forwarded.
                 options.Cookie.Name = "s_";
                 options.Cookie.HttpOnly = true;
             })
@@ -77,29 +76,10 @@ namespace Dockin
 
                 options.Events = new JwtBearerEvents
                 {
-                    OnMessageReceived = context =>
-                    {
-                        //Console.WriteLine("📥 OnMessageReceived");
-                        //Console.WriteLine($"Authorization: {context.Request.Headers["Authorization"]}");
-                        return Task.CompletedTask;
-                    },
-                    OnTokenValidated = context =>
-                    {
-                        //Console.WriteLine("✅ OnTokenValidated");
-                        //Console.WriteLine($"User: {context.Principal?.Identity?.Name}");
-                        return Task.CompletedTask;
-                    },
                     OnAuthenticationFailed = context =>
                     {
-                        Console.WriteLine("❌ OnAuthenticationFailed");
+                        Console.WriteLine("OnAuthenticationFailed");
                         Console.WriteLine(context.Exception.ToString());
-                        return Task.CompletedTask;
-                    },
-                    OnChallenge = context =>
-                    {
-                        //Console.WriteLine("⚠️ OnChallenge");
-                        //Console.WriteLine($"Error: {context.Error}");
-                        //Console.WriteLine($"Description: {context.ErrorDescription}");
                         return Task.CompletedTask;
                     }
                 };
@@ -117,6 +97,7 @@ namespace Dockin
 
                 if (builder.Environment.IsProduction())
                 {
+                    // Behind a TLS-terminating proxy the request scheme is http, so build the https redirect URI explicitly.
                     options.Events = new OpenIdConnectEvents
                     {
                         OnRedirectToIdentityProvider = context =>
@@ -134,6 +115,7 @@ namespace Dockin
                     };
                 }
 
+                // Drop the client secret from the retained config once it has been handed to the OIDC options.
                 entraId = entraId with { Clientsecret = string.Empty };
             });
 
@@ -141,7 +123,7 @@ namespace Dockin
 
             var app = builder.Build();
 
-            // Admin Consent flow initiator
+            // Starts the admin consent flow by redirecting to Entra ID with a one-time state value.
             app.MapGet("/admin-consent", () =>
             {
                 var clientId = entraId.Clientid;
@@ -159,7 +141,7 @@ namespace Dockin
                 return Results.Redirect(url);
             });
 
-            // Callback handler
+            // Receives the admin consent result and validates the state issued by /admin-consent.
             app.MapGet("/admin-consent/callback", (
                 [FromQuery] string? state,
                 [FromQuery] string? admin_consent,
@@ -170,24 +152,22 @@ namespace Dockin
             {
                 if (!_states.TryRemove(state ?? "", out _))
                 {
-                    return Results.Text("❌ Invalid or missing state parameter.");
+                    return Results.Text("Invalid or missing state parameter.");
                 }
 
                 if (admin_consent == "True")
                 {
-                    return Results.Text($"✅ Consent granted for tenant {tenant} scope={scope}");
+                    return Results.Text($"Consent granted for tenant {tenant} scope={scope}");
                 }
 
-                return Results.Text($"❌ Consent failed: {error} - {error_description}");
+                return Results.Text($"Consent failed: {error} - {error_description}");
             });
 
             app.MapGet("/logout", async (HttpContext context) =>
             {
-                // Sign out of the local cookie authentication
                 await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
 
-                // Sign out of the OpenID Connect session and redirect to Entra ID logout
-                var callbackUrl = Uri.EscapeDataString("https://localhost:5000/"); // Change to your post-logout redirect URI
+                var callbackUrl = Uri.EscapeDataString("https://localhost:5000/");
                 var tenantId = entraId.Tenantid;
                 var logoutUrl = $"https://login.microsoftonline.com/{tenantId}/oauth2/v2.0/logout?post_logout_redirect_uri={callbackUrl}";
 
@@ -206,7 +186,6 @@ namespace Dockin
             app.UseAuthorization();
 
             app.Run();
-
         }
     }
 
@@ -219,19 +198,23 @@ namespace Dockin
 
     public class DynamicDestinationTransformProvider : ITransformProvider
     {
-        public void Apply(TransformBuilderContext context)
+        /// <inheritdoc/>
+
+        public void ValidateRoute(TransformRouteValidationContext context)
         {
-            context.RequestTransforms.Add(new DynamicDestinationTransform(context.Services));
+
         }
 
+        /// <inheritdoc/>
         public void ValidateCluster(TransformClusterValidationContext context)
         {
 
         }
 
-        public void ValidateRoute(TransformRouteValidationContext context)
+        /// <inheritdoc/>
+        public void Apply(TransformBuilderContext context)
         {
-
+            context.RequestTransforms.Add(new DynamicDestinationTransform(context.Services));
         }
 
         private sealed class DynamicDestinationTransform : RequestTransform
@@ -246,17 +229,19 @@ namespace Dockin
                 _logger = services.GetRequiredService<ILogger<DynamicDestinationTransform>>();
             }
 
+            /// <summary>
+            /// Builds the destination URI from the configured app name and port, preserving the
+            /// request path and query string, and rewrites the proxy request to use it.
+            /// </summary>
             public override async ValueTask ApplyAsync(RequestTransformContext context)
             {
                 Log.LogFoundSelectedApp(_logger, _app);
 
-                var newUri = new UriBuilder(
-                    "http", 
-                    _app.Name, 
-                    _app.Port, 
-                    context.HttpContext.Request.Path, 
-                    context.HttpContext.Request.QueryString.Value)
-                    .Uri;
+                var newUri = new UriBuilder("http",
+                                            _app.Name,
+                                            _app.Port,
+                                            context.HttpContext.Request.Path,
+                                            context.HttpContext.Request.QueryString.Value).Uri;
 
                 Log.LogProxyUri(_logger, newUri);
 
@@ -266,6 +251,10 @@ namespace Dockin
             }
         }
 
+        /// <summary>
+        /// Points the proxy request at the new URI and sets the Host header to match.
+        /// Cookies prefixed with "s_" belong to the proxy session and are removed before forwarding.
+        /// </summary>
         private static void Rewrite(RequestTransformContext context, Uri uri)
         {
             if (context.ProxyRequest.Headers.TryGetValues("Cookie", out var cookieHeaders))
@@ -301,6 +290,10 @@ namespace Dockin
             _httpContextAccessor = httpContextAccessor;
         }
 
+        /// <summary>
+        /// Ignores the policy name and always requires an authenticated user.
+        /// The JWT scheme is added when the request carries a matching Authorization header.
+        /// </summary>
         public override Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
         {
             var policyBuilder = new AuthorizationPolicyBuilder();

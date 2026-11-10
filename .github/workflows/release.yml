@@ -14,12 +14,12 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '10.0.x'
+          dotnet-version: '11.0.x'
 
       - name: Restore dependencies
         run: dotnet restore src/Dockin.csproj
@@ -38,7 +38,7 @@ jobs:
           cd ../../
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dockin-linux-x64
           path: dockin-linux-x64.zip
@@ -51,12 +51,12 @@ jobs:
 
     steps:
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dockin-linux-x64
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dockin-linux-x64.zip
@@ -71,18 +71,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Download Linux artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dockin-linux-x64
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -96,7 +96,7 @@ jobs:
 
           # --- Generate the Dockerfile ---
           cat > docker-build/Dockerfile <<EOF
-          FROM mcr.microsoft.com/dotnet/runtime-deps:10.0-azurelinux3.0-distroless
+          FROM mcr.microsoft.com/dotnet/runtime-deps:11.0-azurelinux4.0-distroless
           WORKDIR /app
           COPY Dockin .
           COPY appsettings.json .
