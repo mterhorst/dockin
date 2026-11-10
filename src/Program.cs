@@ -298,7 +298,7 @@ namespace Dockin
         {
             var policyBuilder = new AuthorizationPolicyBuilder();
 
-            if (_httpContextAccessor.HttpContext?.Request.Headers.TryGetValue("Authorization", out var authHeader) == true && 
+            if (_httpContextAccessor.HttpContext?.Request.Headers.TryGetValue("Authorization", out var authHeader) == true &&
                 AuthenticationHeaderValue.TryParse(authHeader, out var authHeaderValue) &&
                 string.Equals(authHeaderValue.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase))
             {
